@@ -64,7 +64,7 @@ EMBED_DIM = 16            # embedding dimension
 NUM_HEADS = 2              # number of attention heads
 NUM_LAYERS = 6             # number of Transformer blocks
 DROPOUT = 0.1              # dropout rate
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 LR = 3e-4
 DEVICE = "mps" if torch.mps.is_available() else "cpu"
 
@@ -167,7 +167,7 @@ class MNISTQuantized(Dataset):
     def _quantize_and_cache(self):
         """
         Convert each image to a 1D array of token indices by:
-        - Converting to numpy uint8 RGB values
+        - Converting to numpy uint8 grayscale values
         - Flattening to (28*28, 1)
         - Assigning each pixel to the nearest centroid index
         """
