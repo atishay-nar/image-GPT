@@ -1,20 +1,20 @@
 """
-test_completion.py
+sample.py
 
-Load a CIFAR-10 test image, take its top half as context, and use a trained
-TransformerGPT (16×16) to complete the bottom half. Displays original vs.
-completed 32×32 images side by side so you can verify the model is working.
+Load a MNIST test image, take its top half as context, and use a trained
+TransformerGPT (28x28) to complete the bottom half. Displays original vs.
+completed 28x28 images side by side so you can verify the model is working.
 
 Usage:
-    python test_completion.py \
-        --checkpoint_path ./checkpoints/image_gpt_epoch50.pth \
-        --centroids_path ./centroids_512.npy \
+    python sample.py \
+        --checkpoint_path ./checkpoints/image_gpt_epoch{epoch}.pth \
+        --centroids_path ./centroids_{num_clusters}.npy \
         [--index 0] [--top_k 50] [--temperature 1.0]
 
 Arguments:
     --checkpoint_path  Path to your trained TransformerGPT .pth file.
-    --centroids_path   Path to centroids_512.npy (NUM_CLUSTERS=512).
-    --index            (Optional) CIFAR-10 test image index (default: 0).
+    --centroids_path   Path to centroids_{num_clusters}.npy
+    --index            (Optional) MNIST test image index (default: 0).
     --top_k            (Optional) Top-k sampling (default: 50).
     --temperature      (Optional) Sampling temperature (default: 1.0).
 """
@@ -33,13 +33,12 @@ import matplotlib.pyplot as plt
 # ───────────────────────────────────────────────────────────────────────────────
 # Hyperparameters (must match training)
 # ───────────────────────────────────────────────────────────────────────────────
-IMAGE_SIZE   = 28               # model resolution: 16×16
+IMAGE_SIZE   = 28               # model resolution: 28x28
 SEQ_LEN      = IMAGE_SIZE * IMAGE_SIZE  # 256
 NUM_CLUSTERS = 16              # vocabulary size used at training
 EMBED_DIM    = 16
 NUM_HEADS    = 2
-NUM_LAYERS   = 8
-DROPOUT      = 0.1
+NUM_LAYERS   = 6
 
 DEVICE = (
     "mps" if torch.backends.mps.is_available()
@@ -57,7 +56,6 @@ class TransformerGPT(nn.Module):
                  embed_dim: int = EMBED_DIM,
                  num_heads: int = NUM_HEADS,
                  num_layers: int = NUM_LAYERS,
-                 dropout: float = DROPOUT,
                  max_seq_len: int = SEQ_LEN):
         super().__init__()
         self.embed_tokens = nn.Embedding(vocab_size, embed_dim)
@@ -67,7 +65,6 @@ class TransformerGPT(nn.Module):
             d_model=embed_dim,
             nhead=num_heads,
             dim_feedforward=4 * embed_dim,
-            dropout=dropout,
             activation="gelu",
             batch_first=True
         )
@@ -95,31 +92,37 @@ class TransformerGPT(nn.Module):
 
 
 # ───────────────────────────────────────────────────────────────────────────────
-# Quantize a 16×16 PIL image into a 256-length token array via centroids
+# Quantize a 28x28 PIL image into a 784-length token array via centroids
 # ───────────────────────────────────────────────────────────────────────────────
 def quantize_image_to_tokens(img_pil: Image.Image, centroids: np.ndarray):
     """
     Args:
-      img_pil: PIL.Image in RGB. Will be resized to 16×16.
-      centroids: NumPy array (512,3) of uint8 centroid colors.
+      img_pil: PIL.Image in RGB. Will be resized to 28x28
+      centroids: NumPy array (16,1) of uint8 centroid colors.
 
     Returns:
-      tokens: torch.LongTensor of shape (256,), each in [0,512).
+      tokens: torch.LongTensor of shape (784,), each in [0,16).
     """
-    img = img_pil.convert("RGB").resize((IMAGE_SIZE, IMAGE_SIZE), Image.BILINEAR)
-    arr = np.array(img, dtype=np.uint8).reshape(-1, 3)         # shape: (256,3)
-    pix = arr.astype(np.int32)                                # (256,3)
-    cents = centroids.astype(np.int32)                        # (512,3)
-    pix_norm = np.sum(pix * pix, axis=1, keepdims=True)       # (256,1)
-    cent_norm = np.sum(cents * cents, axis=1)                 # (512,)
-    dot = pix @ cents.T                                       # (256,512)
-    dists = pix_norm + cent_norm - 2 * dot                     # (256,512)
-    token_ids = np.argmin(dists, axis=1)                       # (256,)
-    return torch.from_numpy(token_ids).long()                  # (256,)
+    img = img_pil.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE), Image.BILINEAR) # make single channel
+
+
+    arr = np.array(img, dtype=np.uint8).reshape(-1, 1)                       # flatten to shape: (784,1)
+
+    # ensure correct type
+    pix = arr.astype(np.int32)                                # (784,1)
+    cents = centroids.astype(np.int32)                        # (16,1)
+
+    pix_norm = np.sum(pix * pix, axis=1, keepdims=True)       # (784,1)
+    cent_norm = np.sum(cents * cents, axis=1)                 # (16,)
+    dot = pix @ cents.T                                       # (784,16)
+    dists = pix_norm + cent_norm - 2 * dot                     # (784,16)
+
+    token_ids = np.argmin(dists, axis=1)                       # (784,)
+    return torch.from_numpy(token_ids).long()                  # (784,)
 
 
 # ───────────────────────────────────────────────────────────────────────────────
-# Autoregressively sample missing tokens given a prefix (first 128 tokens)
+# Autoregressively sample missing tokens given a prefix (first 392 tokens)
 # ───────────────────────────────────────────────────────────────────────────────
 @torch.no_grad()
 def conditional_sample(model: TransformerGPT,
@@ -130,21 +133,21 @@ def conditional_sample(model: TransformerGPT,
     """
     Args:
       model: trained TransformerGPT.
-      prefix_tokens: 1D LongTensor of length 128.
-      total_length: 256.
+      prefix_tokens: 1D LongTensor of length 392.
+      total_length: 784.
       temperature: float.
       top_k: int.
 
     Returns:
-      full_tokens: LongTensor shape (256,) containing prefix + generated tokens.
+      full_tokens: LongTensor shape (784,) containing prefix + generated tokens.
     """
     device = next(model.parameters()).device
     prefix_len = prefix_tokens.size(0)
-    generated = prefix_tokens.unsqueeze(0).to(device)  # shape: (1,128)
+    generated = prefix_tokens.unsqueeze(0).to(device)  # shape: (1,392)
 
     for pos in range(prefix_len, total_length):
-        logits_all = model(generated)                    # (1, pos, 512)
-        logits_last = logits_all[:, -1, :] / temperature  # (1,512)
+        logits_all = model(generated)                    # (1, pos, 16)
+        logits_last = logits_all[:, -1, :] / temperature  # (1,16)
 
         if top_k is not None:
             vals, _ = torch.topk(logits_last, top_k)
@@ -155,7 +158,7 @@ def conditional_sample(model: TransformerGPT,
                 logits_last
             )
 
-        probs = torch.softmax(logits_last, dim=-1)        # (1,512)
+        probs = torch.softmax(logits_last, dim=-1)        # (1,16)
         next_token = torch.multinomial(probs, num_samples=1)  # (1,1)
         generated = torch.cat((generated, next_token), dim=1) # (1, pos+1)
 
@@ -163,27 +166,26 @@ def conditional_sample(model: TransformerGPT,
 
 
 # ───────────────────────────────────────────────────────────────────────────────
-# Convert a full 256-length token sequence back to a 16×16 RGB image (upsampled to 32×32)
+# Convert a full 784-length token sequence back to a 28x28 gray image
 # ───────────────────────────────────────────────────────────────────────────────
 def tokens_to_image(token_seq: torch.LongTensor, centroids: np.ndarray):
     """
     Args:
-      token_seq: LongTensor (256,), each in [0,512).
-      centroids: NumPy array (512,3) of uint8.
+      token_seq: LongTensor (256,), each in [0,16).
+      centroids: NumPy array (16,1) of uint8.
 
     Returns:
       PIL.Image (32×32) upsampled with nearest neighbor for display.
     """
-    tokens_np = token_seq.numpy().astype(np.int32)  # (256,)
-    rgb = centroids[tokens_np]                      # (256,3), uint8
-    arr = rgb.reshape((IMAGE_SIZE, IMAGE_SIZE, 3))  # (16,16,3)
-    img16 = Image.fromarray(arr, mode="RGB")
-    img32 = img16.resize((32, 32), resample=Image.NEAREST)
-    return img32
+    tokens_np = token_seq.numpy().astype(np.int32)  # (784)
+    grays = centroids[tokens_np]                      # (784), uint8
+    arr = grays.reshape((IMAGE_SIZE, IMAGE_SIZE))  # (28,28)
+    img28 = Image.fromarray(arr, mode="L")
+    return img28
 
 
 # ───────────────────────────────────────────────────────────────────────────────
-# Main: load CIFAR-10 test image, quantize prefix, sample, and display results
+# Main: load MNIST test image, quantize prefix, sample, and display results
 # ───────────────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
@@ -193,15 +195,15 @@ def main():
     )
     parser.add_argument(
         "--centroids_path", type=str, required=True,
-        help="Path to centroids_512.npy (NUM_CLUSTERS=512)"
+        help="Path to centroids_16.npy (NUM_CLUSTERS=16)"
     )
     parser.add_argument(
         "--index", type=int, default=0,
-        help="Index of CIFAR-10 test image to use (default: 0)"
+        help="Index of MNIST test image to use (default: 0)"
     )
     parser.add_argument(
-        "--top_k", type=int, default=50,
-        help="Top-k sampling (default: 50)"
+        "--top_k", type=int, default=16,
+        help="Top-k sampling (default: 16)"
     )
     parser.add_argument(
         "--temperature", type=float, default=1.0,
@@ -212,27 +214,24 @@ def main():
     # 1) Load centroids
     if not os.path.exists(args.centroids_path):
         raise FileNotFoundError(f"Centroids file not found: {args.centroids_path}")
-    centroids = np.load(args.centroids_path)  # shape (512, 3), dtype=uint8
+    centroids = np.load(args.centroids_path)  # shape (16, 1), dtype=uint8
 
-    # 2) Load CIFAR-10 test dataset, pick one image
-    test_set = datasets.CIFAR10(root="./data", train=False, download=True)
-    img32, label = test_set[args.index]  # PIL.Image of size 32×32
+    # 2) Load MNISt test dataset, pick one image
+    test_set = datasets.MNIST(root="./data", train=False, download=True)
+    img28, _ = test_set[args.index]  # PIL.Image of size 28*28
 
-    # 3) Resize to 16×16 before quantizing
-    img16 = img32.resize((IMAGE_SIZE, IMAGE_SIZE), resample=Image.BILINEAR)
 
-    # 4) Quantize full 16×16 image to tokens, then split prefix (first 128 tokens)
-    full_tokens = quantize_image_to_tokens(img16, centroids)  # (256,)
-    prefix_len = SEQ_LEN // 2  # 128
-    prefix_tokens = full_tokens[:prefix_len]                  # (128,)
+    # 3) Quantize full 28x28 image to tokens, then split prefix (first 128 tokens)
+    full_tokens = quantize_image_to_tokens(img28, centroids)  # (28*28,)
+    prefix_len = SEQ_LEN // 2  # 28*28 // 2 = 392
+    prefix_tokens = full_tokens[:prefix_len]                  # (392,)
 
-    # 5) Load model and checkpoint
+    # 4) Load model and checkpoint
     model = TransformerGPT(
         vocab_size=NUM_CLUSTERS,
         embed_dim=EMBED_DIM,
         num_heads=NUM_HEADS,
         num_layers=NUM_LAYERS,
-        dropout=DROPOUT,
         max_seq_len=SEQ_LEN
     ).to(DEVICE)
 
@@ -240,27 +239,24 @@ def main():
     model.load_state_dict(ckpt)
     model.eval()
 
-    # 6) Sample bottom half tokens conditioned on top half
+    # 5) Sample bottom half tokens conditioned on top half
     generated = conditional_sample(
         model,
         prefix_tokens=prefix_tokens,
         total_length=SEQ_LEN,
         temperature=args.temperature,
         top_k=args.top_k
-    )  # (256,)
+    )  # (784,)
 
-    # Overwrite first 128 tokens with the original prefix
+    # Overwrite first 392 tokens with the original prefix
     generated[:prefix_len] = prefix_tokens
 
-    # 7) Reconstruct completed image
-    completed_img = tokens_to_image(generated, centroids)  # PIL.Image 32×32
+    # 6) Reconstruct completed image
+    completed_img = tokens_to_image(generated, centroids)  # PIL.Image 28*28
 
-    # 8) Upsample original 16×16 → 32×32 for display
-    orig_resized = img16.resize((32, 32), resample=Image.NEAREST)
-
-    # 9) Plot side by side
+    # 7) Plot side by side
     fig, axes = plt.subplots(1, 2, figsize=(6, 3))
-    axes[0].imshow(orig_resized)
+    axes[0].imshow(img28)
     axes[0].set_title("Top Half (Given)")
     axes[0].axis("off")
 

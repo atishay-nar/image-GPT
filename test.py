@@ -15,10 +15,10 @@ This script reproduces the core functionality of the repository:
 https://github.com/teddykoker/image-gpt
 
 It performs:
-1. Computing k-means centroids over CIFAR-10 RGB pixels to quantize the color space.
+1. Computing k-means centroids over MNIST pixels to quantize the intensity space.
 2. A Dataset that yields quantized token sequences for each image.
 3. A simple GPT-like (decoder-only) Transformer that autoregressively models pixel tokens.
-4. A training loop for generative pretraining on CIFAR-10.
+4. A training loop for generative pretraining on MNIST.
 
 Usage:
     python image_gpt.py --mode compute_centroids
@@ -30,17 +30,12 @@ Requirements:
 
 import argparse
 import os
-import math
-import pickle
-from pathlib import Path
 
 import numpy as np
 from tqdm import tqdm
-from PIL import Image
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
 import torchvision
@@ -54,21 +49,22 @@ from sklearn.cluster import MiniBatchKMeans
 
 # Default directories
 DATA_DIR = "./data"
-CENTROIDS_PATH = "./centroids_16.npy"
-TOKENIZED_DATA_DIR = "./tokenized_cifar10"
+
+TOKENIZED_DATA_DIR = "./tokenized_mnist"
 MODEL_SAVE_DIR = "./checkpoints"
 os.makedirs(TOKENIZED_DATA_DIR, exist_ok=True)
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 
 # Hyperparameters
 NUM_CLUSTERS = 16         # number of k-means centroids (vocab size)
-IMAGE_SIZE = 28            # CIFAR-10 images are 32x32
+CENTROIDS_PATH = f"./centroids_{NUM_CLUSTERS}.npy"
+IMAGE_SIZE = 28            # mnist images are 28x28
 SEQ_LEN = IMAGE_SIZE * IMAGE_SIZE  # sequence length (one token per pixel)
 EMBED_DIM = 16            # embedding dimension
 NUM_HEADS = 2              # number of attention heads
-NUM_LAYERS = 8             # number of Transformer blocks
+NUM_LAYERS = 6             # number of Transformer blocks
 DROPOUT = 0.1              # dropout rate
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 LR = 3e-4
 DEVICE = "mps" if torch.mps.is_available() else "cpu"
 
@@ -81,7 +77,7 @@ def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
                                batch_size: int = 10000,
                                max_samples: int = 500000):
     """
-    Load CIFAR-10 train set, collect RGB pixels, run MiniBatchKMeans to get centroids,
+    Load MNIST train set, collect RGB pixels, run MiniBatchKMeans to get centroids,
     and save to disk.
 
     Args:
@@ -89,28 +85,27 @@ def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
         batch_size (int): batch size for MiniBatchKMeans.
         max_samples (int): maximum number of pixels to sample for clustering (for speed).
     """
-    print(f"Computing {num_clusters} centroids from CIFAR-10 train pixels...")
+    print(f"Computing {num_clusters} centroids from MNIST train pixels...")
     # transform to convert images to tensors and resize to 28x28
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Resize((IMAGE_SIZE, IMAGE_SIZE))
     ])
 
-    # 1. Load CIFAR-10 train data (only pixel arrays, no labels)
-    cifar_train = torchvision.datasets.CIFAR10(
+    # 1. Load MNIST train data (only pixel arrays, no labels)
+    mnist_train = torchvision.datasets.MNIST(
         root=DATA_DIR, train=True, download=True,
         transform=transform
     )
-    loader = DataLoader(cifar_train, batch_size=256, shuffle=True, num_workers=0)
+    loader = DataLoader(mnist_train, batch_size=256, shuffle=True, num_workers=0)
 
     # 2. Collect up to max_samples pixel RGB values
     pix_list = []
     total_pixels = 0
     for imgs, _ in tqdm(loader, desc="Collecting pixels"):
-        # imgs: (B, 3, 32, 32), values in [0,1]
-        bs = imgs.shape[0]
-        imgs_np = (imgs.permute(0, 2, 3, 1).cpu().numpy() * 255).astype(np.uint8)  # shape (B,32,32,3)
-        imgs_np = imgs_np.reshape(-1, 3)  # shape (B*32*32, 3)
+        # imgs: (B, 1, 28, 28), values in [0,1]
+        imgs_np = (imgs.squeeze(1).cpu().numpy() * 255).astype(np.uint8)  # shape (B,28,28)
+        imgs_np = imgs_np.reshape(-1, 1)  # flatten to (B*28*28,1)
         pix_list.append(imgs_np)
         total_pixels += imgs_np.shape[0]
 
@@ -135,9 +130,9 @@ def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
 #                         Dataset and Tokenization                             #
 ###############################################################################
 
-class CIFAR10Quantized(Dataset):
+class MNISTQuantized(Dataset):
     """
-    A Dataset that returns quantized token sequences for CIFAR-10 images.
+    A Dataset that returns quantized token sequences for MNIST images.
     Each pixel (RGB) is mapped to the nearest centroid index (token).
 
     The quantization step is cached to disk for faster subsequent loads.
@@ -151,49 +146,50 @@ class CIFAR10Quantized(Dataset):
         """
         super().__init__()
         self.train = train
-        self.centroids = np.load(centroids_path)  # shape: (NUM_CLUSTERS, 3)
-        # Load raw CIFAR-10 dataset without transforms (we'll quantize manually)
-        self.raw_dataset = torchvision.datasets.CIFAR10(
+        self.centroids = np.load(centroids_path)  # shape: (NUM_CLUSTERS, 1)
+        # Load raw CMNIST dataset without transforms (we'll quantize manually)
+        self.raw_dataset = torchvision.datasets.MNIST(
             root=DATA_DIR, train=self.train, download=True, transform=transforms.Resize((IMAGE_SIZE, IMAGE_SIZE))
         )
 
         # Path to cached tokenized file
         suffix = "train" if self.train else "test"
-        self.cache_path = os.path.join(TOKENIZED_DATA_DIR, f"cifar10_{suffix}_tokens.npy")
+        self.cache_path = os.path.join(TOKENIZED_DATA_DIR, f"MNIST_{suffix}_tokens.npy")
 
         # If cache exists, load directly; else quantize all images and save
         if os.path.exists(self.cache_path):
             print(f"Loading tokenized data from {self.cache_path}...")
             self.tokenized = np.load(self.cache_path, mmap_mode="r")
         else:
-            print(f"Tokenizing CIFAR-10 {'train' if self.train else 'test'} images...")
+            print(f"Tokenizing MNIST {'train' if self.train else 'test'} images...")
             self.tokenized = self._quantize_and_cache()
 
     def _quantize_and_cache(self):
         """
         Convert each image to a 1D array of token indices by:
         - Converting to numpy uint8 RGB values
-        - Flattening to (32*32, 3)
+        - Flattening to (28*28, 1)
         - Assigning each pixel to the nearest centroid index
         """
         num_images = len(self.raw_dataset)
         token_array = np.empty((num_images, SEQ_LEN), dtype=np.int64)
 
         # Precompute squared centroid norms for fast nearest-neighbor
-        centroids = self.centroids.astype(np.int32)  # (NUM_CLUSTERS, 3)
+        centroids = self.centroids.astype(np.int32)  # (NUM_CLUSTERS, 1)
 
         for idx in tqdm(range(num_images), desc="Quantizing images"):
             img, _ = self.raw_dataset[idx]
             # img is PIL Image
-            img_np = np.array(img, dtype=np.uint8).reshape(-1, 3)  # (1024,3)
+            img_np = np.array(img, dtype=np.uint8)  # (28,28)
+            img_np = img_np.reshape(-1, 1) # flatten to (28*28, 1)
 
-            # Compute L2 distance to each centroid: (1024, NUM_CLUSTERS)
+            # Compute L2 distance to each centroid: (28*28, NUM_CLUSTERS)
             # Efficient approach: expand dims
             # dist_sq = ||pix - centroids||^2 = pix^2 + centroids^2 - 2*pix·centroids
             pix_int = img_np.astype(np.int32)
-            pix_norm = np.sum(pix_int ** 2, axis=1, keepdims=True)  # (1024,1)
+            pix_norm = np.sum(pix_int ** 2, axis=1, keepdims=True)  # (28*28,1)
             cent_norm = np.sum(centroids ** 2, axis=1)  # (NUM_CLUSTERS,)
-            dot = pix_int @ centroids.T  # (1024, NUM_CLUSTERS)
+            dot = pix_int @ centroids.T  # (28*28, NUM_CLUSTERS)
             dists = pix_norm + cent_norm - 2 * dot  # (1024, NUM_CLUSTERS)
             token_ids = np.argmin(dists, axis=1)  # (1024,)
             token_array[idx] = token_ids
@@ -233,7 +229,6 @@ class TransformerGPT(nn.Module):
                  embed_dim: int = EMBED_DIM,
                  num_heads: int = NUM_HEADS,
                  num_layers: int = NUM_LAYERS,
-                 dropout: float = DROPOUT,
                  max_seq_len: int = SEQ_LEN):
         super().__init__()
         self.embed_tokens = nn.Embedding(vocab_size, embed_dim)
@@ -244,7 +239,6 @@ class TransformerGPT(nn.Module):
             d_model=embed_dim,
             nhead=num_heads,
             dim_feedforward=4 * embed_dim,
-            dropout=dropout,
             activation="gelu",
             batch_first=True  # PyTorch >=1.12 supports batch_first
         )
@@ -355,7 +349,7 @@ def train(model: nn.Module,
 ###############################################################################
 
 def main():
-    parser = argparse.ArgumentParser(description="Image GPT for CIFAR-10")
+    parser = argparse.ArgumentParser(description="Image GPT for MNIST")
     parser.add_argument(
         "--mode", type=str, required=True,
         choices=["compute_centroids", "train"],
@@ -388,7 +382,7 @@ def main():
             )
 
         # 2. Prepare Dataset and DataLoader
-        train_dataset = CIFAR10Quantized(train=True)
+        train_dataset = MNISTQuantized(train=True)
         train_loader = DataLoader(
             train_dataset,
             batch_size=args.batch_size,
