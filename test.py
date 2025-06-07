@@ -1,7 +1,7 @@
 """
 image_gpt.py
 
-A PyTorch implementation of Image GPT (iGPT-S style) for CIFAR-10, updated to work with
+A PyTorch implementation of Image GPT (iGPT-S style) for MNIST, updated to work with
 the latest versions of the required libraries:
 
 - torch >= 2.0.0
@@ -56,16 +56,15 @@ os.makedirs(TOKENIZED_DATA_DIR, exist_ok=True)
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 
 # Hyperparameters
-NUM_CLUSTERS = 16         # number of k-means centroids (vocab size)
+NUM_CLUSTERS = 32        # number of k-means centroids (vocab size)
 CENTROIDS_PATH = f"./centroids_{NUM_CLUSTERS}.npy"
 IMAGE_SIZE = 28            # mnist images are 28x28
 SEQ_LEN = IMAGE_SIZE * IMAGE_SIZE  # sequence length (one token per pixel)
 EMBED_DIM = 16            # embedding dimension
 NUM_HEADS = 2              # number of attention heads
-NUM_LAYERS = 6             # number of Transformer blocks
-DROPOUT = 0.1              # dropout rate
+NUM_LAYERS = 8            # number of Transformer blocks
 BATCH_SIZE = 64
-LR = 3e-4
+LR = 3e-3
 DEVICE = "mps" if torch.mps.is_available() else "cpu"
 
 
@@ -86,7 +85,7 @@ def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
         max_samples (int): maximum number of pixels to sample for clustering (for speed).
     """
     print(f"Computing {num_clusters} centroids from MNIST train pixels...")
-    # transform to convert images to tensors and resize to 28x28
+    # transform to convert images to tensors and resize
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Resize((IMAGE_SIZE, IMAGE_SIZE))
@@ -133,7 +132,7 @@ def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
 class MNISTQuantized(Dataset):
     """
     A Dataset that returns quantized token sequences for MNIST images.
-    Each pixel (RGB) is mapped to the nearest centroid index (token).
+    Each grayscale pixel is mapped to the nearest centroid index (token).
 
     The quantization step is cached to disk for faster subsequent loads.
     """
@@ -147,14 +146,14 @@ class MNISTQuantized(Dataset):
         super().__init__()
         self.train = train
         self.centroids = np.load(centroids_path)  # shape: (NUM_CLUSTERS, 1)
-        # Load raw CMNIST dataset without transforms (we'll quantize manually)
+        # Load raw MNIST dataset 
         self.raw_dataset = torchvision.datasets.MNIST(
             root=DATA_DIR, train=self.train, download=True, transform=transforms.Resize((IMAGE_SIZE, IMAGE_SIZE))
         )
 
         # Path to cached tokenized file
         suffix = "train" if self.train else "test"
-        self.cache_path = os.path.join(TOKENIZED_DATA_DIR, f"MNIST_{suffix}_tokens.npy")
+        self.cache_path = os.path.join(TOKENIZED_DATA_DIR, f"MNIST_{suffix}_tokens{NUM_CLUSTERS}.npy")
 
         # If cache exists, load directly; else quantize all images and save
         if os.path.exists(self.cache_path):
@@ -238,7 +237,7 @@ class TransformerGPT(nn.Module):
         transformer_layer = nn.TransformerDecoderLayer(
             d_model=embed_dim,
             nhead=num_heads,
-            dim_feedforward=4 * embed_dim,
+            dim_feedforward= 4 * embed_dim,
             activation="gelu",
             batch_first=True  # PyTorch >=1.12 supports batch_first
         )

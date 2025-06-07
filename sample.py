@@ -34,14 +34,14 @@ import matplotlib.pyplot as plt
 # Hyperparameters (must match training)
 # ───────────────────────────────────────────────────────────────────────────────
 IMAGE_SIZE   = 28               # model resolution: 28x28
-SEQ_LEN      = IMAGE_SIZE * IMAGE_SIZE  # 256
-NUM_CLUSTERS = 16              # vocabulary size used at training
+SEQ_LEN      = IMAGE_SIZE * IMAGE_SIZE  # 794
+NUM_CLUSTERS = 32              # vocabulary size used at training
 EMBED_DIM    = 16
 NUM_HEADS    = 2
-NUM_LAYERS   = 6
+NUM_LAYERS   = 8
 
 DEVICE = (
-    "mps" if torch.backends.mps.is_available()
+    "mps" if torch.mps.is_available()
     else "cuda" if torch.cuda.is_available()
     else "cpu"
 )
@@ -103,7 +103,7 @@ def quantize_image_to_tokens(img_pil: Image.Image, centroids: np.ndarray):
     Returns:
       tokens: torch.LongTensor of shape (784,), each in [0,16).
     """
-    img = img_pil.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE), Image.BILINEAR) # make single channel
+    img = img_pil.convert("L").resize((IMAGE_SIZE, IMAGE_SIZE))#, Image.BILINEAR) # make single channel
 
 
     arr = np.array(img, dtype=np.uint8).reshape(-1, 1)                       # flatten to shape: (784,1)
@@ -126,10 +126,10 @@ def quantize_image_to_tokens(img_pil: Image.Image, centroids: np.ndarray):
 # ───────────────────────────────────────────────────────────────────────────────
 @torch.no_grad()
 def conditional_sample(model: TransformerGPT,
-                       prefix_tokens: torch.LongTensor,
+                       prefix_tokens: torch.Tensor,
                        total_length: int,
                        temperature: float = 1.0,
-                       top_k: int = 50) -> torch.LongTensor:
+                       top_k: int = 50) -> torch.Tensor:
     """
     Args:
       model: trained TransformerGPT.
@@ -168,7 +168,7 @@ def conditional_sample(model: TransformerGPT,
 # ───────────────────────────────────────────────────────────────────────────────
 # Convert a full 784-length token sequence back to a 28x28 gray image
 # ───────────────────────────────────────────────────────────────────────────────
-def tokens_to_image(token_seq: torch.LongTensor, centroids: np.ndarray):
+def tokens_to_image(token_seq: torch.Tensor, centroids: np.ndarray):
     """
     Args:
       token_seq: LongTensor (256,), each in [0,16).
@@ -202,7 +202,7 @@ def main():
         help="Index of MNIST test image to use (default: 0)"
     )
     parser.add_argument(
-        "--top_k", type=int, default=16,
+        "--top_k", type=int, default=8,
         help="Top-k sampling (default: 16)"
     )
     parser.add_argument(
