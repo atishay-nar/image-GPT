@@ -56,13 +56,13 @@ os.makedirs(TOKENIZED_DATA_DIR, exist_ok=True)
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 
 # Hyperparameters
-NUM_CLUSTERS = 32        # number of k-means centroids (vocab size)
+NUM_CLUSTERS = 16        # number of k-means centroids (vocab size)
 IMAGE_SIZE = 28            # mnist images are 28x28
 SEQ_LEN = IMAGE_SIZE * IMAGE_SIZE  # sequence length (one token per pixel)
-EMBED_DIM = 16            # embedding dimension
-NUM_HEADS = 2              # number of attention heads
+EMBED_DIM = 32            # embedding dimension
+NUM_HEADS = 2             # number of attention heads
 NUM_LAYERS = 8            # number of Transformer blocks
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 LR = 3e-4
 
 DEVICE = (
@@ -78,9 +78,8 @@ np.random.seed(0)
 #                         Centroid Computation                                 #
 ###############################################################################
 CENTROIDS_PATH = f"./centroids_{NUM_CLUSTERS}.npy"
-def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
-                               batch_size: int = 1024,
-                               samples_per_class: int = 3000):
+def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS, batch_size: int = 1024):
+
     """
     Load MNIST train set, collect  pixels, run MiniBatchKMeans to get centroids,
     and save to disk.
@@ -90,7 +89,6 @@ def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
         batch_size (int): batch size for MiniBatchKMeans.
         samples_per_class (int): amount of samples per class for .
     """
-    print(f"Sampling {samples_per_class} images per class (total ~{10*samples_per_class} images)...")
     # transform to convert images to tensors and resize
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -103,40 +101,18 @@ def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
         transform=transform
     )
 
-    # # 2. Gather indices by class
-    # targets = mnist.targets.numpy()             # shape (60000,)
-    # selected_idx = []
-    # num_classes = int(targets.max()) + 1 
+    # 2. transform into pixel array
+    train_x = np.stack([(x.numpy()*255).astype(np.uint8) for x, _ in mnist])
+    train_x = train_x.transpose(0, 2, 3, 1)
+    
+    pixels = train_x.reshape(-1, train_x.shape[-1])
 
-    # for cls in range(num_classes):
-    #     cls_indices = np.where(targets == cls)[0]
-    #     # if dataset has < samples_per_class images of that class, take them all
-    #     take_k = min(len(cls_indices), samples_per_class)
-    #     chosen = np.random.choice(cls_indices, take_k, replace=False)
-    #     selected_idx.extend(chosen.tolist())
-
-    # # 3. Create a subset of the dataset with selected indices
-    # subset = Subset(mnist, selected_idx)
-    loader = DataLoader(mnist, batch_size=batch_size, num_workers=0)
-
-    # 4. Collect pixels
-    pix_list = []
-    for imgs, _ in tqdm(loader, desc="Collecting pixels"):
-        # imgs: (B, 1, 28, 28), values in [0,1]
-        imgs_np = (imgs.squeeze(1).cpu().numpy() * 255).astype(np.uint8)  # shape (B,28,28)
-        imgs_np = imgs_np.reshape(-1, 1)  # flatten to (B*28*28,1)
-        pix_list.append(imgs_np)
-
-
-    pix_array = np.concatenate(pix_list, axis=0)
-    print(f"Collected {pix_array.shape[0]} pixels for k-means.")
-
-    # 5. Run MiniBatchKMeans on pixel RGB vectors
+    # 3. perform k-means clustering
     kmeans = MiniBatchKMeans(n_clusters=num_clusters, batch_size=batch_size, verbose=1)
-    kmeans.fit(pix_array)
+    kmeans.fit(pixels)
     centroids = kmeans.cluster_centers_.astype(np.uint8)  # shape (num_clusters, 3)
 
-    # 6. Save centroids to file
+    # 4. Save centroids to file
     np.save(CENTROIDS_PATH, centroids)
     print(f"Saved centroids to {CENTROIDS_PATH}")
 
@@ -254,7 +230,7 @@ class TransformerGPT(nn.Module):
             d_model=embed_dim,
             nhead=num_heads,
             dim_feedforward= 4 * embed_dim,
-            activation="gelu",
+            activation="relu", # prev gelu
             batch_first=True  # PyTorch >=1.12 supports batch_first
         )
         self.transformer = nn.TransformerDecoder(
@@ -268,7 +244,7 @@ class TransformerGPT(nn.Module):
         # Causal mask (do not attend to future tokens)
         # We will construct this mask on-the-fly in forward()
 
-    def _generate_causal_mask(self, seq_len: int, device: str):
+    def _generate_causal_mask(self, seq_len: int, device):
         """
         Generate a causal mask of shape (seq_len, seq_len) with float(-inf) in masked positions.
         """
@@ -316,9 +292,8 @@ class TransformerGPT(nn.Module):
 def train(model: nn.Module,
           train_loader: DataLoader,
           optimizer: torch.optim.Optimizer,
-          scheduler: torch.optim.lr_scheduler._LRScheduler,
           epochs: int = 50,
-          save_interval: int = 10):
+          save_interval: int = 5):
     """
     Training loop for generative pretraining.
     Autoregressively model next-token prediction with CrossEntropyLoss.
@@ -326,9 +301,9 @@ def train(model: nn.Module,
     model.train()
     criterion = nn.CrossEntropyLoss()
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(epochs):
         epoch_loss = 0.0
-        for batch in tqdm(train_loader, desc=f"Epoch {epoch}/{epochs}"):
+        for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
             # batch: (B, SEQ_LEN)
             batch = batch.to(DEVICE)
             inputs = batch[:, :-1]    # (B, SEQ_LEN-1)
@@ -345,15 +320,15 @@ def train(model: nn.Module,
 
             epoch_loss += loss.item()
 
-        # Scheduler step (if any)
-        if scheduler is not None:
-            scheduler.step()
+        # # Scheduler step (if any)
+        # if scheduler is not None:
+        #     scheduler.step()
 
         avg_loss = epoch_loss / len(train_loader)
-        print(f"Epoch {epoch} average loss: {avg_loss:.4f}")
+        print(f"Epoch {epoch + 1} average loss: {avg_loss:.4f}")
 
         # Save checkpoint periodically
-        if epoch % save_interval == 0 or epoch == epochs:
+        if (epoch + 1) % save_interval == 0 or (epoch + 1) == epochs:
             save_path = os.path.join(MODEL_SAVE_DIR, f"image_gpt_epoch{epoch}.pth")
             torch.save(model.state_dict(), save_path)
             print(f"Saved checkpoint: {save_path}")
@@ -408,16 +383,17 @@ def main():
 
         # 3. Build model and optimizer
         model = TransformerGPT().to(DEVICE)
-        optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) # prev had weight_decay=1e-2
         # Optionally a scheduler; here we use a simple cosine schedule
-        total_steps = len(train_loader) * args.epochs
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps)
+        # total_steps = len(train_loader) * args.epochs
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=total_steps) # get rid of
 
         # 4. Train
-        train(model, train_loader, optimizer, scheduler, epochs=args.epochs)
+        train(model, train_loader, optimizer, epochs=args.epochs)
 
     else:
         raise ValueError("Unknown mode")
+
 
 
 if __name__ == "__main__":

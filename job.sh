@@ -12,9 +12,6 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=anaray84@asu.edu
 module load mamba/latest
-mamba create -n myenv python=3.10
 source activate myenv
-pip install torch torchvision numpy scikit-learn tqdm matplotlib
 python test.py --mode compute_centroids
-python test.py --mode train --epochs 50
-python sample.py --checkpoint_path checkpoints/image_gpt_epoch10.pth --centroids_path centroids_32.npy --index 0
+python test.py --mode train --epochs 40

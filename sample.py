@@ -29,6 +29,8 @@ from torchvision import datasets
 from PIL import Image
 import matplotlib.pyplot as plt
 
+from test import TransformerGPT
+
 
 # ───────────────────────────────────────────────────────────────────────────────
 # Hyperparameters (must match training)
@@ -36,7 +38,7 @@ import matplotlib.pyplot as plt
 IMAGE_SIZE   = 28               # model resolution: 28x28
 SEQ_LEN      = IMAGE_SIZE * IMAGE_SIZE  # 794
 NUM_CLUSTERS = 32              # vocabulary size used at training
-EMBED_DIM    = 16
+EMBED_DIM    = 32
 NUM_HEADS    = 2
 NUM_LAYERS   = 8
 
@@ -46,49 +48,6 @@ DEVICE = (
     else "cpu"
 )
 
-
-# ───────────────────────────────────────────────────────────────────────────────
-# TransformerGPT definition (must match exactly your training script)
-# ───────────────────────────────────────────────────────────────────────────────
-class TransformerGPT(nn.Module):
-    def __init__(self,
-                 vocab_size: int = NUM_CLUSTERS,
-                 embed_dim: int = EMBED_DIM,
-                 num_heads: int = NUM_HEADS,
-                 num_layers: int = NUM_LAYERS,
-                 max_seq_len: int = SEQ_LEN):
-        super().__init__()
-        self.embed_tokens = nn.Embedding(vocab_size, embed_dim)
-        self.pos_embed    = nn.Embedding(max_seq_len, embed_dim)
-
-        transformer_layer = nn.TransformerDecoderLayer(
-            d_model=embed_dim,
-            nhead=num_heads,
-            dim_feedforward=4 * embed_dim,
-            activation="gelu",
-            batch_first=True
-        )
-        self.transformer = nn.TransformerDecoder(
-            transformer_layer,
-            num_layers=num_layers
-        )
-
-        self.ln_f = nn.LayerNorm(embed_dim)
-        self.head = nn.Linear(embed_dim, vocab_size)
-
-    def _generate_causal_mask(self, L: int, device: torch.device):
-        return torch.triu(torch.ones((L, L), device=device) * float("-inf"), diagonal=1)
-
-    def forward(self, input_ids: torch.LongTensor):
-        B, S = input_ids.size()
-        device = input_ids.device
-        positions = torch.arange(0, S, device=device).unsqueeze(0).expand(B, S)
-        x = self.embed_tokens(input_ids) + self.pos_embed(positions)
-        causal_mask = self._generate_causal_mask(S, device=device)
-        out = self.transformer(tgt=x, memory=x, tgt_mask=causal_mask)
-        out = self.ln_f(out)
-        logits = self.head(out)
-        return logits  # shape: (B, S, vocab_size)
 
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -110,12 +69,12 @@ def quantize_image_to_tokens(img_pil: Image.Image, centroids: np.ndarray):
 
     # ensure correct type
     pix = arr.astype(np.int32)                                # (784,1)
-    cents = centroids.astype(np.int32)                        # (16,1)
+    cents = centroids.astype(np.int32)                        # (28,1)
 
     pix_norm = np.sum(pix * pix, axis=1, keepdims=True)       # (784,1)
-    cent_norm = np.sum(cents * cents, axis=1)                 # (16,)
-    dot = pix @ cents.T                                       # (784,16)
-    dists = pix_norm + cent_norm - 2 * dot                     # (784,16)
+    cent_norm = np.sum(cents * cents, axis=1)                 # (28,)
+    dot = pix @ cents.T                                       # (784,28)
+    dists = pix_norm + cent_norm - 2 * dot                     # (784,28)
 
     token_ids = np.argmin(dists, axis=1)                       # (784,)
     return torch.from_numpy(token_ids).long()                  # (784,)
