@@ -36,7 +36,7 @@ from tqdm import tqdm
 
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 
 import torchvision
 from torchvision import transforms
@@ -57,34 +57,40 @@ os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 
 # Hyperparameters
 NUM_CLUSTERS = 32        # number of k-means centroids (vocab size)
-CENTROIDS_PATH = f"./centroids_{NUM_CLUSTERS}.npy"
 IMAGE_SIZE = 28            # mnist images are 28x28
 SEQ_LEN = IMAGE_SIZE * IMAGE_SIZE  # sequence length (one token per pixel)
 EMBED_DIM = 16            # embedding dimension
 NUM_HEADS = 2              # number of attention heads
 NUM_LAYERS = 8            # number of Transformer blocks
 BATCH_SIZE = 64
-LR = 3e-3
-DEVICE = "mps" if torch.mps.is_available() else "cpu"
+LR = 3e-4
+
+DEVICE = (
+    "cuda" if torch.cuda.is_available()
+    else "mps" if torch.mps.is_available()
+    else "cpu"
+)
+
+np.random.seed(0)
 
 
 ###############################################################################
 #                         Centroid Computation                                 #
 ###############################################################################
-
+CENTROIDS_PATH = f"./centroids_{NUM_CLUSTERS}.npy"
 def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
-                               batch_size: int = 10000,
-                               max_samples: int = 500000):
+                               batch_size: int = 1024,
+                               samples_per_class: int = 3000):
     """
-    Load MNIST train set, collect RGB pixels, run MiniBatchKMeans to get centroids,
+    Load MNIST train set, collect  pixels, run MiniBatchKMeans to get centroids,
     and save to disk.
 
     Args:
         num_clusters (int): number of clusters (vocabulary size).
         batch_size (int): batch size for MiniBatchKMeans.
-        max_samples (int): maximum number of pixels to sample for clustering (for speed).
+        samples_per_class (int): amount of samples per class for .
     """
-    print(f"Computing {num_clusters} centroids from MNIST train pixels...")
+    print(f"Sampling {samples_per_class} images per class (total ~{10*samples_per_class} images)...")
     # transform to convert images to tensors and resize
     transform = transforms.Compose([
         transforms.ToTensor(),
@@ -92,35 +98,45 @@ def compute_and_save_centroids(num_clusters: int = NUM_CLUSTERS,
     ])
 
     # 1. Load MNIST train data (only pixel arrays, no labels)
-    mnist_train = torchvision.datasets.MNIST(
+    mnist = torchvision.datasets.MNIST(
         root=DATA_DIR, train=True, download=True,
         transform=transform
     )
-    loader = DataLoader(mnist_train, batch_size=256, shuffle=True, num_workers=0)
 
-    # 2. Collect up to max_samples pixel RGB values
+    # # 2. Gather indices by class
+    # targets = mnist.targets.numpy()             # shape (60000,)
+    # selected_idx = []
+    # num_classes = int(targets.max()) + 1 
+
+    # for cls in range(num_classes):
+    #     cls_indices = np.where(targets == cls)[0]
+    #     # if dataset has < samples_per_class images of that class, take them all
+    #     take_k = min(len(cls_indices), samples_per_class)
+    #     chosen = np.random.choice(cls_indices, take_k, replace=False)
+    #     selected_idx.extend(chosen.tolist())
+
+    # # 3. Create a subset of the dataset with selected indices
+    # subset = Subset(mnist, selected_idx)
+    loader = DataLoader(mnist, batch_size=batch_size, num_workers=0)
+
+    # 4. Collect pixels
     pix_list = []
-    total_pixels = 0
     for imgs, _ in tqdm(loader, desc="Collecting pixels"):
         # imgs: (B, 1, 28, 28), values in [0,1]
         imgs_np = (imgs.squeeze(1).cpu().numpy() * 255).astype(np.uint8)  # shape (B,28,28)
         imgs_np = imgs_np.reshape(-1, 1)  # flatten to (B*28*28,1)
         pix_list.append(imgs_np)
-        total_pixels += imgs_np.shape[0]
 
-        if total_pixels >= max_samples:
-            break
 
     pix_array = np.concatenate(pix_list, axis=0)
-    pix_array = pix_array[:max_samples]
     print(f"Collected {pix_array.shape[0]} pixels for k-means.")
 
-    # 3. Run MiniBatchKMeans on pixel RGB vectors
+    # 5. Run MiniBatchKMeans on pixel RGB vectors
     kmeans = MiniBatchKMeans(n_clusters=num_clusters, batch_size=batch_size, verbose=1)
     kmeans.fit(pix_array)
     centroids = kmeans.cluster_centers_.astype(np.uint8)  # shape (num_clusters, 3)
 
-    # 4. Save centroids to file
+    # 6. Save centroids to file
     np.save(CENTROIDS_PATH, centroids)
     print(f"Saved centroids to {CENTROIDS_PATH}")
 
@@ -189,8 +205,8 @@ class MNISTQuantized(Dataset):
             pix_norm = np.sum(pix_int ** 2, axis=1, keepdims=True)  # (28*28,1)
             cent_norm = np.sum(centroids ** 2, axis=1)  # (NUM_CLUSTERS,)
             dot = pix_int @ centroids.T  # (28*28, NUM_CLUSTERS)
-            dists = pix_norm + cent_norm - 2 * dot  # (1024, NUM_CLUSTERS)
-            token_ids = np.argmin(dists, axis=1)  # (1024,)
+            dists = pix_norm + cent_norm - 2 * dot  # (794, NUM_CLUSTERS)
+            token_ids = np.argmin(dists, axis=1)  # (794,)
             token_array[idx] = token_ids
 
         # Save to .npy for caching
