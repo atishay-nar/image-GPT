@@ -25,7 +25,7 @@ Usage:
     python image_gpt.py --mode train --epochs 50
 
 Requirements:
-    pip install torch torchvision numpy tqdm pillow scikit-learn
+    pip install torch torchvision numpy tqdm scikit-learn
 """
 
 import argparse
@@ -56,7 +56,7 @@ os.makedirs(TOKENIZED_DATA_DIR, exist_ok=True)
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 
 # Hyperparameters
-NUM_CLUSTERS = 16        # number of k-means centroids (vocab size)
+NUM_CLUSTERS = 32        # number of k-means centroids (vocab size)
 IMAGE_SIZE = 28            # mnist images are 28x28
 SEQ_LEN = IMAGE_SIZE * IMAGE_SIZE  # sequence length (one token per pixel)
 EMBED_DIM = 32            # embedding dimension
@@ -167,7 +167,8 @@ class MNISTQuantized(Dataset):
 
         # Precompute squared centroid norms for fast nearest-neighbor
         centroids = self.centroids.astype(np.int32)  # (NUM_CLUSTERS, 1)
-
+        cent_norm = np.sum(centroids ** 2, axis=1)  # (NUM_CLUSTERS,)
+        print(centroids)
         for idx in tqdm(range(num_images), desc="Quantizing images"):
             img, _ = self.raw_dataset[idx]
             # img is PIL Image
@@ -179,10 +180,10 @@ class MNISTQuantized(Dataset):
             # dist_sq = ||pix - centroids||^2 = pix^2 + centroids^2 - 2*pix·centroids
             pix_int = img_np.astype(np.int32)
             pix_norm = np.sum(pix_int ** 2, axis=1, keepdims=True)  # (28*28,1)
-            cent_norm = np.sum(centroids ** 2, axis=1)  # (NUM_CLUSTERS,)
+            
             dot = pix_int @ centroids.T  # (28*28, NUM_CLUSTERS)
-            dists = pix_norm + cent_norm - 2 * dot  # (794, NUM_CLUSTERS)
-            token_ids = np.argmin(dists, axis=1)  # (794,)
+            dists = pix_norm + cent_norm - 2 * dot  # (784, NUM_CLUSTERS)
+            token_ids = np.argmin(dists, axis=1)  # (784,)
             token_array[idx] = token_ids
 
         # Save to .npy for caching
@@ -306,15 +307,12 @@ def train(model: nn.Module,
         for batch in tqdm(train_loader, desc=f"Epoch {epoch + 1}/{epochs}"):
             # batch: (B, SEQ_LEN)
             batch = batch.to(DEVICE)
-            inputs = batch[:, :-1]    # (B, SEQ_LEN-1)
-            targets = batch[:, 1:]    # (B, SEQ_LEN-1)
+            inputs = batch[:, :-1]    # first seq_len-1 tokens for each image
+            targets = batch[:, 1:]    # last seq_len-1 tokens for each image
 
             optimizer.zero_grad()
-            logits = model(inputs)    # (B, SEQ_LEN-1, vocab_size)
-            loss = criterion(
-                logits.reshape(-1, logits.size(-1)),
-                targets.reshape(-1)
-            )  # flatten both: (B*(SEQ_LEN-1), vocab_size) vs (B*(SEQ_LEN-1))
+            logits = model(inputs)    # let the model predict next tokens at each position
+            loss = criterion(logits.reshape(-1, logits.size(-1)),targets.reshape(-1))  # calculate loss based on logits and targets
             loss.backward()
             optimizer.step()
 

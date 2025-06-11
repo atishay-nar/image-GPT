@@ -37,7 +37,7 @@ from test import TransformerGPT
 # ───────────────────────────────────────────────────────────────────────────────
 IMAGE_SIZE   = 28               # model resolution: 28x28
 SEQ_LEN      = IMAGE_SIZE * IMAGE_SIZE  # 794
-NUM_CLUSTERS = 32              # vocabulary size used at training
+NUM_CLUSTERS = 16              # vocabulary size used at training
 EMBED_DIM    = 32
 NUM_HEADS    = 2
 NUM_LAYERS   = 8
