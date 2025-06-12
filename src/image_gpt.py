@@ -32,7 +32,6 @@ class ImageGPT(nn.Module):
             nhead = num_heads,
             activation= "gelu", # prev relu
             dim_feedforward = 4 * embed_dim,
-            dropout = 0.0, # prev 0.1
             batch_first = True
         )
 
