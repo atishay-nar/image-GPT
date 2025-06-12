@@ -43,7 +43,7 @@ def generate(model, context, length, num_samples=1):
 def sample(cfg):
   
     # create model and load checkpoint
-    ckpt = torch.load(cfg.checkpoint, map_location=DEVICE)
+    ckpt = torch.load(f'./checkpoints/image_gpt_epoch_{cfg.checkpoint}.pth', map_location=DEVICE)
     model = ImageGPT(cfg).to(DEVICE)
     model.load_state_dict(ckpt)
     model.eval()
@@ -88,7 +88,7 @@ def sample(cfg):
     fig = unquantize(fig.swapaxes(1, 2).reshape(h * nrow, w * ncol), centroids).cpu().numpy()
     fig = (fig * 255).round().astype(np.uint8)
     pic = Image.fromarray(np.squeeze(fig))
-    pic.save("./figures/sampled_images.png")
+    pic.save(f"./figures/sample_at_epoch_{cfg.checkpoint}.png")
 
     return
 
@@ -99,7 +99,7 @@ def sample(cfg):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpt", required=True)
+    parser.add_argument("--ckpt_num", required=True, type=int)
     parser.add_argument("--n_examples", default=3, type=int)
     parser.add_argument("--n_samples", default=3, type=int)
     args, _ = parser.parse_known_args()
