@@ -13,4 +13,6 @@
 #SBATCH --mail-user=anaray84@asu.edu
 module load mamba/latest
 source activate myenv
-python train.py
+python src/train.py
+python src/sample.py --ckpt_num 20
+python src/sample.py --ckpt_num 40

@@ -3,10 +3,9 @@ import yaml
 import os
 import numpy as np
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader, Subset
+from torch.utils.data import DataLoader
 import torchvision
 from torchvision import transforms
 from PIL import Image
@@ -41,12 +40,14 @@ def generate(model, context, length, num_samples=1):
     return output
 
 def sample(cfg):
+    os.makedirs('./figures', exist_ok=True)
   
     # create model and load checkpoint
-    ckpt = torch.load(cfg.checkpoint, map_location=DEVICE)
+    ckpt = torch.load(f'./checkpoints/image_gpt_epoch_{cfg.checkpoint}.pth', map_location=DEVICE)
     model = ImageGPT(cfg).to(DEVICE)
     model.load_state_dict(ckpt)
     model.eval()
+    
 
     # load centroids
     centroids_path = os.path.join(cfg.CENTROID_DIR, f"centroids_{cfg.NUM_CLUSTERS}.npy")
@@ -88,7 +89,7 @@ def sample(cfg):
     fig = unquantize(fig.swapaxes(1, 2).reshape(h * nrow, w * ncol), centroids).cpu().numpy()
     fig = (fig * 255).round().astype(np.uint8)
     pic = Image.fromarray(np.squeeze(fig))
-    pic.save("./figures/sampled_images.png")
+    pic.save(f"./figures/sample_at_epoch_{cfg.checkpoint}.png")
 
     return
 
@@ -99,12 +100,12 @@ def sample(cfg):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ckpt", required=True)
+    parser.add_argument("--ckpt_num", required=True, type=int)
     parser.add_argument("--n_examples", default=3, type=int)
     parser.add_argument("--n_samples", default=3, type=int)
     args, _ = parser.parse_known_args()
     cfg_dict = yaml.safe_load(open("configs.yml", "r"))
-    cfg_dict["checkpoint"] = args.ckpt
+    cfg_dict["checkpoint"] = args.ckpt_num
     cfg_dict["num_examples"] = args.n_examples
     cfg_dict["num_samples"] = args.n_samples
     cfg = argparse.Namespace(**cfg_dict)

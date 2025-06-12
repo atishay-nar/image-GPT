@@ -6,4 +6,4 @@ based off of https://github.com/teddykoker/image-gpt
 TO-DO:
 
 lr schedular
-sample script
+go back to adamW?
