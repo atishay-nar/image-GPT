@@ -1,3 +1,4 @@
 local
 data
 tokenized_mnist
+__pycache__

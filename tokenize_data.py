@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import Dataset
 import torchvision
 from torchvision import transforms
+from utils import quantize
 
 # set device
 DEVICE = (
@@ -40,33 +41,18 @@ class TokenizedData(Dataset):
             # get centroids
             centroids_path = os.path.join(cfg.CENTROID_DIR, f"centroids_{cfg.NUM_CLUSTERS}.npy")
             self.centroids = torch.tensor(np.load(centroids_path)).to(DEVICE)
-            self.tokenized = self.quantize(raw_dataset, self.centroids)
-
-    # compute distance
-    def squared_euclidean_distance(self, a, b):
-        b = torch.transpose(b, 0, 1)
-        a2 = torch.sum(torch.square(a), dim=1, keepdim=True)
-        b2 = torch.sum(torch.square(b), dim=0, keepdim=True)
-        ab = torch.matmul(a, b)
-        d = a2 - 2 * ab + b2
-        return d
+            self.tokenized = self.quantize_and_cache(raw_dataset, self.centroids)
     
     # quantize images
-    def quantize(self, pre_images, centroids):
+    def quantize_and_cache(self, pre_images, centroids):
         # create empty array to hold quantized images
         token_array = np.empty((len(pre_images), self.SEQ_LEN), dtype=np.int32)
         # loop through images
         i = 0
         for itm in tqdm(pre_images, desc="Quantizing Images"):
-            # get image and turn into list of pixels
-            img = itm[0].detach().clone().to(DEVICE) # create image tensor
-            img = img.permute(1,2, 0).contiguous()
-            img = img.view(-1, 1) # flatten to pixels
 
-            # calc distance to centroids
-            d = self.squared_euclidean_distance(img, centroids)
-            tokens = torch.argmin(d, 1) # replace with closest centroid index for each pixel
-
+            img = itm[0].detach().clone().to(DEVICE) # create image tensor 
+            tokens = quantize(img, centroids) # quantize image to tokens
             token_array[i] = tokens.cpu().numpy() # store in array
             i += 1
 
