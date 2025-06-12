@@ -30,8 +30,9 @@ class ImageGPT(nn.Module):
         transformer_layer = nn.TransformerDecoderLayer(
             d_model = embed_dim,
             nhead = num_heads,
+            activation= "gelu", # prev relu
             dim_feedforward = 4 * embed_dim,
-            dropout = 0.0,
+            dropout = 0.0, # prev 0.1
             batch_first = True
         )
 
