@@ -25,7 +25,7 @@ def train(cfg):
 
     # define model and optimizer
     model = ImageGPT(cfg).to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.LR) 
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.LR, weight_decay=0.01) # prev adam
 
     #put model in training mode
     model.train()
@@ -33,7 +33,7 @@ def train(cfg):
     epochs = cfg.EPOCHS
 
     # TO-DO: add a scheduler
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs*len(train_loader))  # cosine annealing scheduler
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs*len(train_loader))  # cosine annealing scheduler
 
     
 
