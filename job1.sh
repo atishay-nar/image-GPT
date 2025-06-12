@@ -13,5 +13,4 @@
 #SBATCH --mail-user=anaray84@asu.edu
 module load mamba/latest
 source activate myenv
-python test.py --mode compute_centroids
-python test.py --mode train --epochs 40
+python train.py
