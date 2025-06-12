@@ -1,5 +1,5 @@
 # image-transformer
-classical model that will be modified in quantum
+classical model that will be enhanced with quantum
 
 based off of https://github.com/teddykoker/image-gpt
 

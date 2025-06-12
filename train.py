@@ -58,7 +58,7 @@ def train(cfg):
         
         # Save checkpoint periodically
         if (epoch + 1) % cfg.SAVE_INTERVAL == 0 or (epoch + 1) == epochs:
-            save_path = os.path.join(cfg.MODEL_SAVE_DIR, f"image_gpt_epoch{epoch + 1}.pth")
+            save_path = os.path.join(cfg.MODEL_SAVE_DIR, f"image_gpt_epoch_{epoch + 1}.pth")
             torch.save(model.state_dict(), save_path)
             print(f"Saved checkpoint: {save_path}")
 
