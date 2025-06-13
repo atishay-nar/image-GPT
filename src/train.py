@@ -25,14 +25,17 @@ def train(cfg):
 
     # define model and optimizer
     model = ImageGPT(cfg).to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.LR) 
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.LR, weight_decay=0.01) # prev adam
 
-    # TO-DO: add a scheduler
-
-    # put model in training mode
+    #put model in training mode
     model.train()
     criterion = nn.CrossEntropyLoss()
     epochs = cfg.EPOCHS
+
+    # TO-DO: add a scheduler
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs*len(train_loader))  # cosine annealing scheduler
+
+    
 
     # training loop
     for epoch in range(epochs):
@@ -41,7 +44,6 @@ def train(cfg):
             batch = batch.long().to(DEVICE) # batch: (B, seq_len)
             inputs = batch[:, :-1] # first seq_len-1 tokens for each image
             targets = batch[:, 1:] # last seq_len-1 tokens for each image
-
 
             optimizer.zero_grad()
             logits = model(inputs)
@@ -52,6 +54,7 @@ def train(cfg):
             epoch_loss += loss.item()
         
         # TO-DO: add scheduler step
+        scheduler.step()
 
         avg_loss = epoch_loss / len(train_loader)
         print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}")

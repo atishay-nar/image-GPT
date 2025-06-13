@@ -91,7 +91,6 @@ def sample(cfg):
     pic = Image.fromarray(np.squeeze(fig))
     pic.save(f"./figures/sample_at_epoch_{cfg.checkpoint}.png")
 
-    return
 
 
 

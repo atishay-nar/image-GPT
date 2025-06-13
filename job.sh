@@ -4,7 +4,7 @@
 #SBATCH -c 16
 #SBATCH --gpus=a100:1
 #SBATCH --mem=64G
-#SBATCH --time=1-0 
+#SBATCH --time=0-4 
 #SBATCH -p general
 #SBATCH -q public
 #SBATCH -o=job.out
@@ -14,5 +14,7 @@
 module load mamba/latest
 source activate myenv
 python src/train.py
+python src/sample.py --ckpt_num 10
 python src/sample.py --ckpt_num 20
+python src/sample.py --ckpt_num 30
 python src/sample.py --ckpt_num 40
