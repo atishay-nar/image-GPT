@@ -36,7 +36,7 @@ class TokenizedData(Dataset):
         else:
             self.SEQ_LEN = cfg.IMAGE_SIZE ** 2
             # Load raw MNIST dataset 
-            raw_dataset = torchvision.datasets.MNIST(root=cfg.DATA_DIR, train=True, download=True, transform=transforms.ToTensor())
+            raw_dataset = torchvision.datasets.MNIST(root=cfg.DATA_DIR, train=True,download=True, transform=transforms.ToTensor())
 
             # get centroids
             centroids_path = os.path.join(cfg.CENTROID_DIR, f"centroids_{cfg.NUM_CLUSTERS}.npy")
