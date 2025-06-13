@@ -24,18 +24,16 @@ torch.manual_seed(0)
 
 # generate the next part of image given a contex
 def generate(model, context, length, num_samples=1):
-    output = context.unsqueeze(-1).repeat_interleave(num_samples, dim=-1)  # add batch size of num_samples so shape [seq len, batch]
-
-    pad  = torch.zeros(1, num_samples, dtype=torch.long).to(DEVICE)  # padding for the output
+    output = context.unsqueeze(0).repeat(num_samples, 1)  # add batch size of num_samples so shape [seq len, batch]
 
     # precfg_dict
     with torch.no_grad():
         for _ in tqdm(range(length), leave=False, desc=f"Generating"):
-            logits = model(torch.cat((output, pad), dim=0))
-            logits = logits[-1, :, :]  # get the last token's logits
+            logits = model(output)               # (batch, seq, vocab)
+            logits = logits[:, -1, :]            # (batch, vocab)
             probs = F.softmax(logits, dim=-1)  # convert logits to probabilities
-            pred = torch.multinomial(probs, num_samples=1).transpose(1,0) # sample from the distribution
-            output = torch.cat((output, pred), dim=0)  # append the precfg_dicted token to the output
+            pred = torch.multinomial(probs, num_samples=1) # sample from the distribution
+            output = torch.cat((output, pred), dim=1)  # append the precfg_dicted token to the output
 
     return output
 
@@ -77,7 +75,7 @@ def sample(cfg):
         context = torch.from_numpy(context).long().to(DEVICE)  # convert to tensor and move to device
 
         # generate the rest of the image from the context
-        pred = generate(model, context, int(len(tokens) / 2), num_samples=cfg.num_samples).cpu().numpy().transpose()
+        pred = generate(model, context, int(len(tokens) / 2), num_samples=cfg.num_samples).cpu().numpy()
         pred = pred.reshape(-1, cfg.IMAGE_SIZE, cfg.IMAGE_SIZE)  # reshape to image size
 
         # add example to rows
