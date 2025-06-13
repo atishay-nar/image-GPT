@@ -1,6 +1,9 @@
 #imports
 import torch
 import torch.nn as nn
+import argparse
+import yaml
+
 
 
 # set device
@@ -16,34 +19,35 @@ class ImageGPT(nn.Module):
         super().__init__()
 
         vocab = cfg.NUM_CLUSTERS
-        embed_dim = cfg.EMBED_DIM
+        self.embed_dim = cfg.EMBED_DIM
         num_heads = cfg.NUM_HEADS
         num_layers = cfg.NUM_LAYERS
         max_seq_len = cfg.IMAGE_SIZE * cfg.IMAGE_SIZE
 
         # embeds vocab (centroids) into model dimension
-        self.embed_tokens = nn.Embedding(vocab, embed_dim)
+        self.embed_tokens = nn.Embedding(vocab, self.embed_dim)
         # positional embedding
-        self.pos_embed = nn.Embedding(max_seq_len, embed_dim)
+        self.pos_embed = nn.Embedding(max_seq_len, self.embed_dim)
         # start of sequence token
-        self.sos = torch.nn.Parameter(torch.zeros(embed_dim))
+        self.sos = torch.nn.Parameter(torch.zeros(self.embed_dim))
         nn.init.normal_(self.sos)
 
         # transformer layers
         transformer_layer = nn.TransformerDecoderLayer(
-            d_model = embed_dim,
+            d_model = self.embed_dim,
             nhead = num_heads,
             activation= "gelu", # prev relu
-            dim_feedforward = 4 * embed_dim,
+            dim_feedforward = 4 * self.embed_dim,
             batch_first = True
         )
 
         self.transformer = nn.TransformerDecoder(transformer_layer, num_layers=num_layers)
 
-        self.ln_f = nn.LayerNorm(embed_dim)
-        self.head = nn.Linear(embed_dim, vocab, bias=False)
+        self.ln_f = nn.LayerNorm(self.embed_dim)
+        self.head = nn.Linear(self.embed_dim, vocab, bias=False)
     
     def forward(self, x):
+        # x: (B, S) where B is batch size and S is sequence length
         batch_size, seq_len = x.size()
         device = x.device
 
@@ -51,11 +55,11 @@ class ImageGPT(nn.Module):
         h = self.embed_tokens(x)
 
         # prepend sos token
-        sos = torch.ones(1, batch_size, len(h), device=x.device) * self.sos
-        h = torch.cat([sos, h[:-1, :, :]], dim=0)
+        sos = torch.ones(batch_size, 1, self.embed_dim, device=device) * self.sos
+        h = torch.cat([sos, h[:, :-1, :]], dim=1)
 
         # embed tokens and postions
-        positions = torch.arange(0, seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)  # (B, S)
+        positions = torch.arange(seq_len, device=device).unsqueeze(0)  # (B, S)
         h =  h + self.pos_embed(positions)  # (B, S, embed_dim)
 
         # create mask
@@ -71,3 +75,9 @@ class ImageGPT(nn.Module):
         out = self.ln_f(out)
         logits = self.head(out)
         return logits
+
+if __name__ == "__main__":
+    cfg = argparse.Namespace(**yaml.safe_load(open("configs.yml", "r")))
+    model = ImageGPT(cfg)
+    dummy = torch.ones((3, 10), dtype=torch.long)
+    logits = model(dummy)

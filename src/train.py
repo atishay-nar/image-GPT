@@ -45,7 +45,6 @@ def train(cfg):
             inputs = batch[:, :-1] # first seq_len-1 tokens for each image
             targets = batch[:, 1:] # last seq_len-1 tokens for each image
 
-
             optimizer.zero_grad()
             logits = model(inputs)
             loss = criterion(logits.reshape(-1, logits.size(-1)), targets.reshape(-1)) # calculate loss based on logits and targets
