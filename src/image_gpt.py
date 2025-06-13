@@ -25,6 +25,9 @@ class ImageGPT(nn.Module):
         self.embed_tokens = nn.Embedding(vocab, embed_dim)
         # positional embedding
         self.pos_embed = nn.Embedding(max_seq_len, embed_dim)
+        # start of sequence token
+        self.sos = torch.nn.Parameter(torch.zeros(embed_dim))
+        nn.init.normal_(self.sos)
 
         # transformer layers
         transformer_layer = nn.TransformerDecoderLayer(
@@ -40,20 +43,27 @@ class ImageGPT(nn.Module):
         self.ln_f = nn.LayerNorm(embed_dim)
         self.head = nn.Linear(embed_dim, vocab, bias=False)
     
-    def forward(self, input_ids):
-        batch_size, seq_len = input_ids.size()
-        device = input_ids.device
+    def forward(self, x):
+        batch_size, seq_len = x.size()
+        device = x.device
+
+        # embed
+        h = self.embed_tokens(x)
+
+        # prepend sos token
+        sos = torch.ones(1, batch_size, len(h), device=x.device) * self.sos
+        h = torch.cat([sos, h[:-1, :, :]], dim=0)
 
         # embed tokens and postions
         positions = torch.arange(0, seq_len, device=device).unsqueeze(0).expand(batch_size, seq_len)  # (B, S)
-        x = self.embed_tokens(input_ids) + self.pos_embed(positions)  # (B, S, embed_dim)
+        h =  h + self.pos_embed(positions)  # (B, S, embed_dim)
 
         # create mask
         mask = torch.triu(torch.ones((seq_len, seq_len), device=device) * float("-inf"), diagonal=1) # (S, S)
 
         out = self.transformer(
-            tgt=x,
-            memory=x,
+            tgt=h,
+            memory=h,
             tgt_mask=mask
         )
 

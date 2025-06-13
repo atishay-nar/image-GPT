@@ -1,4 +1,7 @@
 import torch
+import argparse
+import yaml
+from image_gpt import ImageGPT
 
 # function to compute squared euclidian distance
 def squared_euclidean_distance(a, b):
@@ -22,3 +25,12 @@ def quantize(img, centroids):
 # unquantize tokens to pixel values using centroids
 def unquantize(tokens, centroids):
     return centroids[tokens]
+
+# parameter count
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+if __name__ == "__main__":
+    cfg = argparse.Namespace(**yaml.safe_load(open("configs.yml", "r")))
+    model = ImageGPT(cfg)
+    print(f"Model has {count_parameters(model):,} trainable parameters.")
