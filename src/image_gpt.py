@@ -79,5 +79,5 @@ class ImageGPT(nn.Module):
 if __name__ == "__main__":
     cfg = argparse.Namespace(**yaml.safe_load(open("configs.yml", "r")))
     model = ImageGPT(cfg)
-    dummy = torch.ones((3, 10), dtype=torch.long)
+    dummy = torch.ones((3, 16), dtype=torch.long)
     logits = model(dummy)
