@@ -40,7 +40,7 @@ class ImageGPT(nn.Module):
             dim_feedforward = 4 * self.embed_dim,
             batch_first = True
         )
-
+        # self.transformer = nn.ModuleList([transformer_layer for _ in range(num_layers)])
         self.transformer = nn.TransformerDecoder(transformer_layer, num_layers=num_layers)
 
         self.ln_f = nn.LayerNorm(self.embed_dim)
