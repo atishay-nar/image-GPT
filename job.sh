@@ -14,9 +14,15 @@
 module load mamba/latest
 source activate myenv
 python src/train.py
+python src/sample.py --ckpt_num 1
+python src/sample.py --ckpt_num 2
+python src/sample.py --ckpt_num 3
 python src/sample.py --ckpt_num 4
+python src/sample.py --ckpt_num 5
+python src/sample.py --ckpt_num 6
+python src/sample.py --ckpt_num 7
 python src/sample.py --ckpt_num 8
+python src/sample.py --ckpt_num 9
+python src/sample.py --ckpt_num 10
+python src/sample.py --ckpt_num 11
 python src/sample.py --ckpt_num 12
-python src/sample.py --ckpt_num 16
-python src/sample.py --ckpt_num 20
-python src/sample.py --ckpt_num 24
