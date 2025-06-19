@@ -39,9 +39,10 @@ class ImageGPT(nn.Module):
             activation= "gelu", # prev relu
             dim_feedforward = 4 * self.embed_dim,
             batch_first = True
+            
         )
-        # self.transformer = nn.ModuleList([transformer_layer for _ in range(num_layers)])
-        self.transformer = nn.TransformerDecoder(transformer_layer, num_layers=num_layers)
+        self.transformer = nn.ModuleList([transformer_layer for _ in range(num_layers)])
+        # self.transformer = nn.TransformerDecoder(transformer_layer, num_layers=num_layers)
 
         self.ln_f = nn.LayerNorm(self.embed_dim)
         self.head = nn.Linear(self.embed_dim, vocab, bias=False)
@@ -65,14 +66,18 @@ class ImageGPT(nn.Module):
         # create mask
         mask = torch.triu(torch.ones((seq_len, seq_len), device=device) * float("-inf"), diagonal=1) # (S, S)
 
-        out = self.transformer(
-            tgt=h,
-            memory=h,
-            tgt_mask=mask
-        )
+        # out = self.transformer(
+        #     tgt=h,
+        #     memory=h,
+        #     tgt_mask=mask
+        # )
+
+        # transformer layers
+        for layer in self.transformer:
+            h = layer(tgt=h, memory=h, tgt_mask=mask)
 
         # final layer norm and head
-        out = self.ln_f(out)
+        out = self.ln_f(h)
         logits = self.head(out)
         return logits
 

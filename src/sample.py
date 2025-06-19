@@ -90,18 +90,13 @@ def sample(cfg):
     fig = (fig * 255).round().astype(np.uint8)
     pic = Image.fromarray(np.squeeze(fig))
     pic.save(f"./figures/sample_at_epoch_{cfg.checkpoint}.png")
-
-
-
-
-        
-        
-
+    
+      
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt_num", required=True, type=int)
-    parser.add_argument("--n_examples", default=3, type=int)
-    parser.add_argument("--n_samples", default=3, type=int)
+    parser.add_argument("--n_examples", default=5, type=int)
+    parser.add_argument("--n_samples", default=5, type=int)
     args, _ = parser.parse_known_args()
     cfg_dict = yaml.safe_load(open("configs.yml", "r"))
     cfg_dict["checkpoint"] = args.ckpt_num
