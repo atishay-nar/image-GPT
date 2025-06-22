@@ -42,7 +42,6 @@ class ImageGPT(nn.Module):
             
         )
         self.transformer = nn.ModuleList([transformer_layer for _ in range(num_layers)])
-        # self.transformer = nn.TransformerDecoder(transformer_layer, num_layers=num_layers)
 
         self.ln_f = nn.LayerNorm(self.embed_dim)
         self.head = nn.Linear(self.embed_dim, vocab, bias=False)
@@ -52,7 +51,7 @@ class ImageGPT(nn.Module):
         batch_size, seq_len = x.size()
         device = x.device
 
-        # embed
+        # embed each part of sequence with vector of size embed_dim
         h = self.embed_tokens(x)
 
         # prepend sos token
@@ -65,12 +64,6 @@ class ImageGPT(nn.Module):
 
         # create mask
         mask = torch.triu(torch.ones((seq_len, seq_len), device=device) * float("-inf"), diagonal=1) # (S, S)
-
-        # out = self.transformer(
-        #     tgt=h,
-        #     memory=h,
-        #     tgt_mask=mask
-        # )
 
         # transformer layers
         for layer in self.transformer:
