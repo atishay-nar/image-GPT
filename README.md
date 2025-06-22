@@ -5,4 +5,4 @@ based off of https://github.com/teddykoker/image-gpt
 
 TO-DO:
 
-go back to adamW?
+get good images to be compared to qGPT model
