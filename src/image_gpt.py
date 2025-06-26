@@ -4,15 +4,6 @@ import torch.nn as nn
 import argparse
 import yaml
 
-
-
-# set device
-DEVICE = (
-        "cuda" if torch.cuda.is_available()
-        else "mps" if torch.mps.is_available()
-        else "cpu"
-        )
-
 # decode-only Transfromer model for image generation
 class ImageGPT(nn.Module):
     def __init__(self, cfg):
@@ -76,6 +67,15 @@ class ImageGPT(nn.Module):
 
 if __name__ == "__main__":
     cfg = argparse.Namespace(**yaml.safe_load(open("configs.yml", "r")))
-    model = ImageGPT(cfg)
+    
+
+    # set device
+    DEVICE = (
+        "cuda" if torch.cuda.is_available()
+        else "mps" if torch.mps.is_available()
+        else "cpu"
+        )
+    
+    model = ImageGPT(cfg).to(DEVICE)
     dummy = torch.ones((3, 16), dtype=torch.long)
     logits = model(dummy)
