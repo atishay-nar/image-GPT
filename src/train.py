@@ -33,7 +33,7 @@ def train(cfg):
     epochs = cfg.EPOCHS
 
     # TO-DO: add a scheduler
-    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs*len(train_loader))  # cosine annealing scheduler
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs*len(train_loader))  # cosine annealing scheduler
 
     
 
