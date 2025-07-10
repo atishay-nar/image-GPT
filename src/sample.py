@@ -62,7 +62,7 @@ def sample(cfg):
     rows = []
     for example in tqdm(range(cfg.num_examples), desc="Sampling Images"):
         # get random image
-        img = next(loader)
+        img, label = next(loader)
         img = img[0].to(DEVICE)
 
 
