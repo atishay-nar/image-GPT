@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from image_gpt import ImageGPT 
 from tokenize_data import TokenizedData
 
+
 # set device
 DEVICE = (
         "cuda" if torch.cuda.is_available()
