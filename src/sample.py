@@ -74,7 +74,7 @@ def sample(cfg):
         
         # ensure no duplicate classes before all classes are visited
         if len(visited) < len(cfg.CLASSES):
-            while label in visited:
+            while label.item() in visited:
                 img, label = next(loader)
             visited.add(label.item())
         
@@ -123,8 +123,8 @@ def sample(cfg):
         pic.save(f"./figures/sample_at_epoch_{cfg.checkpoint}.png")
     
     print(f'''
-    SSIM: mean {np.mean(ssim):.4f} and std {np.std(ssim):.4f}
-    PSNR: mean {np.mean(psnr):.4f} and std {np.std(psnr):.4f}
+    SSIM: mean {np.mean(ssim):.4f} std {np.std(ssim):.4f} high {np.max(ssim):.4f} low {np.min(ssim):.4f}
+    PSNR: mean {np.mean(psnr):.4f} std {np.std(psnr):.4f} high {np.max(psnr):.4f} low {np.min(psnr):.4f}
 ''')
       
 if __name__ == "__main__":
